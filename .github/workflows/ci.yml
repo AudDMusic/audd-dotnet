@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build + test (.NET ${{ matrix.dotnet }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dotnet: ['8.0.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+      - name: dotnet restore
+        run: dotnet restore
+      - name: dotnet build
+        run: dotnet build -c Release --no-restore
+      - name: dotnet test
+        run: dotnet test -c Release --no-build --verbosity normal --filter 'Category!=Contract'
+
+  aot:
+    name: AOT publish smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish AOT smoke test
+        run: dotnet publish tests/AudD.AotSmokeTest -c Release -r linux-x64 -p:PublishAot=true
+      - name: Run AOT binary
+        run: ./tests/AudD.AotSmokeTest/bin/Release/net8.0/linux-x64/publish/AudD.AotSmokeTest
