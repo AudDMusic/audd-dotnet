@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591;CS1591</NoWarn>
+
+    <RootNamespace>AudD</RootNamespace>
+    <AssemblyName>AudD</AssemblyName>
+
+    <!--
+      AOT / IL-trim friendliness. The library uses a [JsonSerializable]
+      partial class (AudDJsonContext) for all wire-boundary types, so reflection-based
+      deserialization is no longer the hot path. IsAotCompatible/IsTrimmable
+      surface analyzer warnings if reflection-heavy patterns sneak back in.
+      Only set on net8.0 — these properties did not exist on net6.0.
+    -->
+    <IsAotCompatible Condition=" '$(TargetFramework)' == 'net8.0' ">true</IsAotCompatible>
+    <IsTrimmable Condition=" '$(TargetFramework)' == 'net8.0' ">true</IsTrimmable>
+    <EnableTrimAnalyzer Condition=" '$(TargetFramework)' == 'net8.0' ">true</EnableTrimAnalyzer>
+
+    <!--
+      When a downstream consumer publishes with -p:PublishAot=true, MSBuild
+      cascades that property to every referenced project. AOT is unsupported
+      on net6.0 (NETSDK1207). Force-disable PublishAot on net6.0 here so the
+      property cascade is harmless.
+    -->
+    <PublishAot Condition=" '$(TargetFramework)' == 'net6.0' ">false</PublishAot>
+
+    <PackageId>AudD</PackageId>
+    <Version>1.5.9</Version>
+    <Authors>AudD</Authors>
+    <Company>AudD</Company>
+    <Product>AudD</Product>
+    <Description>Official .NET SDK for the AudD music recognition API. Supports recognition, enterprise long-file recognition, real-time stream management, longpoll consumers (token-bound and tokenless), custom catalog uploads, and advanced lyrics search.</Description>
+    <Copyright>Copyright (c) 2026 AudD, LLC (https://audd.io)</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/AudDMusic/audd-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AudDMusic/audd-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>audd;music-recognition;audio;fingerprinting</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>See CHANGELOG.md.</PackageReleaseNotes>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AudD.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Condition="Exists('..\..\README.md')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <!--
+      DI hookup. Abstractions packages are tiny and broadly compatible — they
+      do not pull a full DI container into projects that don't use AddAudD.
+      Microsoft.Extensions.Http is a runtime package; consumers who don't use
+      AddHttpClient never load IHttpClientFactory.
+    -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net6.0' ">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+</Project>
