@@ -4,5 +4,5 @@ namespace AudD;
 public static class AudDVersion
 {
     /// <summary>The SemVer version of this SDK.</summary>
-    public const string Version = "1.5.10";
+    public const string Version = "1.5.11";
 }

@@ -190,9 +190,9 @@ static async Task WriteMatchAsync(StreamCallbackMatch match, StreamWriter csv)
     {
         var line = string.Join(",",
             CsvField(receivedAt),
-            CsvField(match.RadioId.ToString(CultureInfo.InvariantCulture)),
+            CsvField(match.RadioId?.ToString(CultureInfo.InvariantCulture) ?? ""),
             CsvField(match.Timestamp ?? ""),
-            CsvField(entry.Score.ToString(CultureInfo.InvariantCulture)),
+            CsvField(entry.Score?.ToString(CultureInfo.InvariantCulture) ?? ""),
             CsvField(entry.Artist),
             CsvField(entry.Title),
             CsvField(entry.Album ?? ""),

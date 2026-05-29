@@ -333,7 +333,16 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         {
             foreach (var chunkEl in result.EnumerateArray())
             {
-                var chunk = chunkEl.Deserialize(AudDJsonContext.Default.EnterpriseChunkResult);
+                EnterpriseChunkResult? chunk;
+                try
+                {
+                    chunk = chunkEl.Deserialize(AudDJsonContext.Default.EnterpriseChunkResult);
+                }
+                catch (JsonException)
+                {
+                    // Skip a malformed chunk rather than failing the whole response.
+                    continue;
+                }
                 if (chunk?.Songs is null) continue;
                 foreach (var s in chunk.Songs)
                 {

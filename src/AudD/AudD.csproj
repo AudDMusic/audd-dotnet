@@ -32,7 +32,7 @@
     <PublishAot Condition=" '$(TargetFramework)' == 'net6.0' ">false</PublishAot>
 
     <PackageId>AudD</PackageId>
-    <Version>1.5.10</Version>
+    <Version>1.5.11</Version>
     <Authors>AudD</Authors>
     <Company>AudD</Company>
     <Product>AudD</Product>

@@ -25,7 +25,7 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
         if (reader.TokenType != JsonTokenType.StartObject)
             throw new JsonException("Expected object for StreamCallbackMatch");
 
-        long radioId = 0;
+        long? radioId = null;
         string? timestamp = null;
         long? playLength = null;
         var songs = new List<StreamCallbackSong>();
@@ -41,13 +41,15 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
             switch (name)
             {
                 case "radio_id":
-                    radioId = reader.GetInt64();
+                    // A successful callback must never fail to parse on a missing or
+                    // wrong-typed radio_id: leave it null rather than throwing.
+                    radioId = TryReadInt64(ref reader);
                     break;
                 case "timestamp":
-                    timestamp = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
+                    timestamp = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
                     break;
                 case "play_length":
-                    playLength = reader.TokenType == JsonTokenType.Null ? null : reader.GetInt64();
+                    playLength = TryReadInt64(ref reader);
                     break;
                 case "results":
                     if (reader.TokenType == JsonTokenType.StartArray)
@@ -55,8 +57,17 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
                         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
                         {
                             using var doc = JsonDocument.ParseValue(ref reader);
-                            var s = doc.RootElement.Deserialize(AudDJsonContext.Default.StreamCallbackSong);
-                            if (s is not null) songs.Add(s);
+                            // Skip a malformed candidate (wrong-typed field) rather than
+                            // failing the whole callback parse.
+                            try
+                            {
+                                var s = doc.RootElement.Deserialize(AudDJsonContext.Default.StreamCallbackSong);
+                                if (s is not null) songs.Add(s);
+                            }
+                            catch (JsonException)
+                            {
+                                // ignore this candidate
+                            }
                         }
                     }
                     else if (reader.TokenType == JsonTokenType.Null)
@@ -83,11 +94,10 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
             }
         }
 
-        if (songs.Count == 0)
-        {
-            throw new JsonException("StreamCallbackMatch.results array must contain at least one entry");
-        }
-
+        // A successful recognition callback must never throw on parse. When the
+        // server returned no usable candidates, surface an empty default Song
+        // and an empty Alternatives list rather than throwing.
+        var song = songs.Count > 0 ? songs[0] : new StreamCallbackSong();
         var alternatives = songs.Count > 1
             ? songs.GetRange(1, songs.Count - 1)
             : new List<StreamCallbackSong>();
@@ -97,17 +107,28 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
             RadioId = radioId,
             Timestamp = timestamp,
             PlayLength = playLength,
-            Song = songs[0],
+            Song = song,
             Alternatives = alternatives,
             Extras = extras,
         };
+    }
+
+    /// <summary>
+    /// Read the current value as an Int64 when it is a JSON number that fits;
+    /// returns null for nulls, strings, or any other shape — never throws.
+    /// </summary>
+    private static long? TryReadInt64(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out var n))
+            return n;
+        return null;
     }
 
     public override void Write(Utf8JsonWriter writer, StreamCallbackMatch value, JsonSerializerOptions options)
     {
         // Re-emit on the wire shape: {radio_id, timestamp, play_length, results: [Song, ...Alternatives]}.
         writer.WriteStartObject();
-        writer.WriteNumber("radio_id", value.RadioId);
+        if (value.RadioId.HasValue) writer.WriteNumber("radio_id", value.RadioId.Value);
         if (value.Timestamp is not null) writer.WriteString("timestamp", value.Timestamp);
         if (value.PlayLength.HasValue) writer.WriteNumber("play_length", value.PlayLength.Value);
         writer.WritePropertyName("results");

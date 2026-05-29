@@ -327,7 +327,12 @@ public sealed record RecognitionResult
 /// <summary>One match from the enterprise endpoint.</summary>
 public sealed record EnterpriseMatch
 {
-    [JsonPropertyName("score")] public int Score { get; init; }
+    /// <summary>
+    /// Match score, when the server reported one. The enterprise endpoint
+    /// legitimately omits <c>score</c> (along with <c>isrc</c>/<c>upc</c>/<c>label</c>)
+    /// on some matches, so this is <c>null</c> rather than <c>0</c> when absent.
+    /// </summary>
+    [JsonPropertyName("score")] public int? Score { get; init; }
     [JsonPropertyName("timecode")] public string Timecode { get; init; } = "";
     [JsonPropertyName("artist")] public string? Artist { get; init; }
     [JsonPropertyName("title")] public string? Title { get; init; }
@@ -392,9 +397,12 @@ public sealed record EnterpriseChunkResult
 /// <summary>One stream from <c>streams.list()</c>.</summary>
 public sealed record Stream
 {
-    [JsonPropertyName("radio_id")] public long RadioId { get; init; }
+    /// <summary>The radio_id for this stream, when present.</summary>
+    [JsonPropertyName("radio_id")] public long? RadioId { get; init; }
     [JsonPropertyName("url")] public string Url { get; init; } = "";
-    [JsonPropertyName("stream_running")] public bool StreamRunning { get; init; }
+
+    /// <summary>Whether the stream is running, when the server reported the flag.</summary>
+    [JsonPropertyName("stream_running")] public bool? StreamRunning { get; init; }
     [JsonPropertyName("longpoll_category")] public string? LongpollCategory { get; init; }
 
     [JsonExtensionData]
@@ -410,7 +418,9 @@ public sealed record StreamCallbackSong
 {
     [JsonPropertyName("artist")] public string Artist { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
-    [JsonPropertyName("score")] public int Score { get; init; }
+
+    /// <summary>Match score, when the server reported one; <c>null</c> when absent.</summary>
+    [JsonPropertyName("score")] public int? Score { get; init; }
     [JsonPropertyName("album")] public string? Album { get; init; }
     [JsonPropertyName("release_date")] public string? ReleaseDate { get; init; }
     [JsonPropertyName("label")] public string? Label { get; init; }
@@ -441,8 +451,8 @@ public sealed record StreamCallbackSong
 [JsonConverter(typeof(Internal.StreamCallbackMatchJsonConverter))]
 public sealed record StreamCallbackMatch
 {
-    /// <summary>The radio_id this match belongs to.</summary>
-    public long RadioId { get; init; }
+    /// <summary>The radio_id this match belongs to, when the callback carried one.</summary>
+    public long? RadioId { get; init; }
 
     /// <summary>Server-side timestamp string (e.g. <c>"2020-04-13 10:31:43"</c>).</summary>
     public string? Timestamp { get; init; }
@@ -476,9 +486,9 @@ public sealed record StreamCallbackMatch
 /// <summary>Notification variant of a streams callback POST body.</summary>
 public sealed record StreamCallbackNotification
 {
-    [JsonPropertyName("radio_id")] public long RadioId { get; init; }
+    [JsonPropertyName("radio_id")] public long? RadioId { get; init; }
     [JsonPropertyName("stream_running")] public bool? StreamRunning { get; init; }
-    [JsonPropertyName("notification_code")] public int NotificationCode { get; init; }
+    [JsonPropertyName("notification_code")] public int? NotificationCode { get; init; }
     [JsonPropertyName("notification_message")] public string NotificationMessage { get; init; } = "";
 
     /// <summary>The outer <c>time</c> field on the callback envelope.</summary>

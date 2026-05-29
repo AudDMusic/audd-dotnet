@@ -39,8 +39,15 @@ public sealed class Advanced
         {
             foreach (var e in r.EnumerateArray())
             {
-                var lyr = e.Deserialize(AudDJsonContext.Default.LyricsResult);
-                if (lyr is not null) output.Add(lyr);
+                try
+                {
+                    var lyr = e.Deserialize(AudDJsonContext.Default.LyricsResult);
+                    if (lyr is not null) output.Add(lyr);
+                }
+                catch (JsonException)
+                {
+                    // Skip a malformed lyrics entry rather than failing the search.
+                }
             }
         }
         return output;

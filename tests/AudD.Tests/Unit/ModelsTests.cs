@@ -119,4 +119,47 @@ public class ModelsTests
         Assert.Equal(650, notif.Value.NotificationCode);
         Assert.Equal(1587939136L, notif.Value.Time);
     }
+
+    [Fact]
+    public void EnterpriseResponse_SongWithoutScore_ParsesWithNullScoreAndDoesNotThrow()
+    {
+        // The enterprise endpoint legitimately returns matches with no `score`
+        // (and no isrc/upc/label). Parsing must never throw, and a missing score
+        // must surface as null rather than 0.
+        var json = """
+        {
+          "status":"success",
+          "result":[
+            {
+              "songs":[
+                {
+                  "artist":"Tears For Fears",
+                  "title":"Everybody Wants To Rule The World",
+                  "timecode":"00:57",
+                  "song_link":"https://lis.tn/NbkVb"
+                }
+              ],
+              "offset":"00:00"
+            }
+          ]
+        }
+        """;
+
+        using var doc = JsonDocument.Parse(json);
+        var result = doc.RootElement.GetProperty("result");
+
+        var matches = new List<EnterpriseMatch>();
+        foreach (var chunkEl in result.EnumerateArray())
+        {
+            var chunk = chunkEl.Deserialize<EnterpriseChunkResult>()!;
+            matches.AddRange(chunk.Songs);
+        }
+
+        var match = Assert.Single(matches);
+        Assert.Null(match.Score);
+        Assert.Equal("Tears For Fears", match.Artist);
+        Assert.Null(match.Isrc);
+        Assert.Null(match.Upc);
+        Assert.Null(match.Label);
+    }
 }

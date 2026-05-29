@@ -149,8 +149,15 @@ public sealed class Streams
             var output = new List<Stream>();
             foreach (var e in r.EnumerateArray())
             {
-                var s = e.Deserialize(AudDJsonContext.Default.Stream);
-                if (s is not null) output.Add(s);
+                try
+                {
+                    var s = e.Deserialize(AudDJsonContext.Default.Stream);
+                    if (s is not null) output.Add(s);
+                }
+                catch (JsonException)
+                {
+                    // Skip a malformed stream entry rather than failing the list.
+                }
             }
             return output;
         }
