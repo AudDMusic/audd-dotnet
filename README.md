@@ -107,7 +107,7 @@ Console.WriteLine(result?.PreviewUrl());      // first preview across requested 
 
 Valid `returnMetadata` values: `apple_music`, `spotify`, `deezer`, `napster`, `musicbrainz`. The corresponding properties (`AppleMusic`, `Spotify`, `Deezer`, `Napster`, `MusicBrainz`) stay `null` when not requested.
 
-`EnterpriseMatch` (returned by `RecognizeEnterpriseAsync`) carries the same core tags plus `Score`, `StartOffset`, `EndOffset`, `Isrc`, `Upc`. Access to `Isrc`, `Upc`, and `Score` requires a Startup plan or higher — [contact us](mailto:api@audd.io) for enterprise features.
+`EnterpriseMatch` (returned by `RecognizeEnterpriseAsync`) carries the same core tags plus `Score`, `Isrc`, `Upc`, and where the song plays in the file. `StartSeconds` and `EndSeconds` give that position in seconds, measured from the start of your file — precise because the SDK requests accurate offsets by default (pass `accurateOffsets: false` to turn that off). Behind them, `StartOffset` and `EndOffset` are the raw offsets in milliseconds relative to the fragment the server matched. Access to `Isrc`, `Upc`, and `Score` requires a Startup plan or higher — [contact us](mailto:api@audd.io) for enterprise features.
 
 ## Reading additional metadata
 

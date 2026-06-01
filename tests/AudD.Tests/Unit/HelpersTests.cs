@@ -61,4 +61,28 @@ public class HelpersTests
         var r = AudDHelpers.AddReturnToUrl("https://example.com/cb", new[] { "apple_music", "spotify" });
         Assert.Contains("return=apple_music%2Cspotify", r);
     }
+
+    [Theory]
+    [InlineData("45", 45.0)]
+    [InlineData("01:30", 90.0)]
+    [InlineData("00:01:00", 60.0)]
+    [InlineData("1:02:03", 3723.0)]
+    [InlineData("12.5", 12.5)]
+    public void OffsetToSeconds_ParsesSupportedFormats(string offset, double expected)
+    {
+        var v = AudDHelpers.OffsetToSeconds(offset);
+        Assert.NotNull(v);
+        Assert.Equal(expected, v!.Value, 3);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("abc")]
+    [InlineData("00:xx")]
+    public void OffsetToSeconds_ReturnsNullOnUnparseable(string? offset)
+    {
+        Assert.Null(AudDHelpers.OffsetToSeconds(offset));
+    }
 }

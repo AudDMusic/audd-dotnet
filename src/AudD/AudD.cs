@@ -325,7 +325,9 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         if (limit.HasValue) fields["limit"] = limit.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (skipFirstSeconds.HasValue) fields["skip_first_seconds"] = skipFirstSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (useTimecode.HasValue) fields["use_timecode"] = useTimecode.Value ? "true" : "false";
-        if (accurateOffsets.HasValue) fields["accurate_offsets"] = accurateOffsets.Value ? "true" : "false";
+        // Default accurate offsets on so StartSeconds/EndSeconds are precise;
+        // a caller passing false opts out.
+        fields["accurate_offsets"] = accurateOffsets.GetValueOrDefault(true) ? "true" : "false";
 
         var body = await PostRecognitionAsync(_enterpriseHttp, $"{EnterpriseBase}/", "recognize_enterprise", source, fields, timeout, cancellationToken).ConfigureAwait(false);
         var matches = new List<EnterpriseMatch>();
@@ -344,9 +346,19 @@ public sealed class AudD : IDisposable, IAsyncDisposable
                     continue;
                 }
                 if (chunk?.Songs is null) continue;
+                var chunkBase = AudDHelpers.OffsetToSeconds(chunk.Offset);
                 foreach (var s in chunk.Songs)
                 {
-                    matches.Add(s with { RawResponse = chunkEl.Clone() });
+                    var match = s with { RawResponse = chunkEl.Clone() };
+                    if (chunkBase is double baseSeconds)
+                    {
+                        match = match with
+                        {
+                            StartSeconds = baseSeconds + (s.StartOffset ?? 0) / 1000.0,
+                            EndSeconds = baseSeconds + (s.EndOffset ?? 0) / 1000.0,
+                        };
+                    }
+                    matches.Add(match);
                 }
             }
         }

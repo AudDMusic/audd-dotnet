@@ -105,6 +105,29 @@ public static class AudDHelpers
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Parse an enterprise chunk <c>offset</c> into seconds. Accepts
+    /// <c>"SS"</c>, <c>"MM:SS"</c>, <c>"HH:MM:SS"</c>, or a bare number
+    /// (seconds, possibly fractional). Returns <c>null</c> on null/empty or
+    /// unparseable input; never throws. Parsing is invariant-culture.
+    /// </summary>
+    internal static double? OffsetToSeconds(string? offset)
+    {
+        if (string.IsNullOrWhiteSpace(offset)) return null;
+        var parts = offset!.Split(':');
+        double total = 0;
+        foreach (var part in parts)
+        {
+            if (!double.TryParse(part, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+            {
+                return null;
+            }
+            total = (total * 60) + v;
+        }
+        return total;
+    }
+
     private static string ToHex(byte[] bytes)
     {
         var sb = new StringBuilder(bytes.Length * 2);

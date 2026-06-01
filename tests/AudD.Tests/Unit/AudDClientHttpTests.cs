@@ -198,6 +198,41 @@ public class AudDClientHttpTests : IDisposable
     }
 
     [Fact]
+    public async Task RecognizeEnterprise_AnchorsOffsetsToFileSeconds_AndDefaultsAccurateOffsetsOn()
+    {
+        // Two chunks: the first at file offset 00:01:00 (60s) with a song whose
+        // fragment-relative offsets are 4200ms..11800ms -> StartSeconds 64.2,
+        // EndSeconds 71.8. The second chunk has no offset, so its song's
+        // StartSeconds/EndSeconds stay null.
+        _server.Given(Request.Create().WithPath("/").UsingPost())
+               .RespondWith(Response.Create().WithStatusCode(200)
+                   .WithHeader("Content-Type", "application/json")
+                   .WithBody("""
+                   {"status":"success","result":[
+                     {"offset":"00:01:00","songs":[{"artist":"a","title":"b","start_offset":4200,"end_offset":11800}]},
+                     {"songs":[{"artist":"c","title":"d","start_offset":1000,"end_offset":2000}]}
+                   ]}
+                   """));
+
+        await using var audd = new global::AudD.AudD("test", httpClient: _client, enterpriseHttpClient: _client);
+        var matches = await audd.RecognizeEnterpriseAsync("https://x.example/y.mp3", limit: 1);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Equal(64.2, matches[0].StartSeconds!.Value, 3);
+        Assert.Equal(71.8, matches[0].EndSeconds!.Value, 3);
+        Assert.Null(matches[1].StartSeconds);
+        Assert.Null(matches[1].EndSeconds);
+
+        // The default request must opt into accurate offsets.
+        var entry = _server.LogEntries.First(e => e.RequestMessage.Path == "/");
+        var body = entry.RequestMessage.Body ?? "";
+        // Multipart part: name=accurate_offsets ... true
+        var idx = body.IndexOf("name=accurate_offsets", StringComparison.Ordinal);
+        Assert.True(idx >= 0, "request body did not contain an accurate_offsets field");
+        Assert.Contains("true", body.Substring(idx, Math.Min(120, body.Length - idx)));
+    }
+
+    [Fact]
     public async Task Advanced_RawRequest_ReturnsBody()
     {
         _server.Given(Request.Create().WithPath("/findLyrics/").UsingPost())

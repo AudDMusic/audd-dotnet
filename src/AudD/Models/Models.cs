@@ -345,6 +345,24 @@ public sealed record EnterpriseMatch
     [JsonPropertyName("start_offset")] public long? StartOffset { get; init; }
     [JsonPropertyName("end_offset")] public long? EndOffset { get; init; }
 
+    /// <summary>
+    /// Where this song starts in the user's file, in seconds: the enclosing
+    /// chunk's <c>offset</c> plus <see cref="StartOffset"/>. Anchors the
+    /// fragment-relative <see cref="StartOffset"/> to an absolute position in
+    /// the source. <c>null</c> when the chunk offset was absent or unparseable.
+    /// Computed from the response, not a wire field.
+    /// </summary>
+    [JsonIgnore] public double? StartSeconds { get; init; }
+
+    /// <summary>
+    /// Where this song ends in the user's file, in seconds: the enclosing
+    /// chunk's <c>offset</c> plus <see cref="EndOffset"/>. Anchors the
+    /// fragment-relative <see cref="EndOffset"/> to an absolute position in the
+    /// source. <c>null</c> when the chunk offset was absent or unparseable.
+    /// Computed from the response, not a wire field.
+    /// </summary>
+    [JsonIgnore] public double? EndSeconds { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extras { get; set; } = new();
 
