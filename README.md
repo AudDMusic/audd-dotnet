@@ -1,5 +1,6 @@
 # audd-dotnet
 
+[![Powered by AudD](https://img.shields.io/badge/Music_Recognition-AudD_API-2a4eef)](https://audd.io)
 [![CI](https://github.com/AudDMusic/audd-dotnet/actions/workflows/ci.yml/badge.svg)](https://github.com/AudDMusic/audd-dotnet/actions/workflows/ci.yml)
 [![Contract](https://github.com/AudDMusic/audd-dotnet/actions/workflows/contract.yml/badge.svg)](https://github.com/AudDMusic/audd-dotnet/actions/workflows/contract.yml)
 [![NuGet](https://img.shields.io/nuget/v/AudD.svg)](https://www.nuget.org/packages/AudD)
