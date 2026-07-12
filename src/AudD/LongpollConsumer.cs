@@ -7,7 +7,7 @@ namespace AudD;
 /// Tokenless longpoll consumer for browser/widget/extension use cases. Carries
 /// no api_token. The category alone authorizes the subscription. Whoever derived
 /// the category is responsible for ensuring a callback URL is set on their
-/// account (we can't preflight that without a token). See spec §4.1, §6.7.
+/// account (we can't preflight that without a token).
 ///
 /// <para>Iterate via <see cref="Iterate"/>, which returns a
 /// <see cref="LongpollPoll"/> handle with three typed streams (Matches /
@@ -132,7 +132,7 @@ public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
         using var req = new HttpRequestMessage(HttpMethod.Get, sb.ToString());
         using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
         var raw = await resp.Content.ReadAsStringAsync(
-#if NET6_0
+#if NET6_0_OR_GREATER
             cancellationToken
 #endif
         ).ConfigureAwait(false);

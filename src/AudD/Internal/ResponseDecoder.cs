@@ -78,8 +78,7 @@ internal static class ResponseDecoder
     {
         if (!body.TryGetProperty("error", out var err) || err.ValueKind != JsonValueKind.Object) return false;
         if (!err.TryGetProperty("error_code", out var c)) return false;
-        var code = c.ValueKind == JsonValueKind.Number ? c.GetInt32() :
-                   (int.TryParse(c.GetString(), out var p) ? p : 0);
+        var code = ErrorRaiser.DecodeErrorCode(c);
         if (code != DeprecatedParamsCode) return false;
         if (!body.TryGetProperty("result", out var r)) return false;
         return r.ValueKind != JsonValueKind.Null;

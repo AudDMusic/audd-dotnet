@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AudD;
 
-/// <summary>Base exception for everything raised by this SDK. See spec §6.</summary>
+/// <summary>Base exception for everything raised by this SDK.</summary>
 public class AudDException : Exception
 {
     /// <inheritdoc/>

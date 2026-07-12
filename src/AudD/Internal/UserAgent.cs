@@ -5,7 +5,7 @@ namespace AudD.Internal;
 internal static class UserAgent
 {
     /// <summary>
-    /// "audd-dotnet/&lt;ver&gt; dotnet/&lt;runtime-ver&gt; (&lt;os&gt;)" — see spec §7.6.
+    /// "audd-dotnet/&lt;ver&gt; dotnet/&lt;runtime-ver&gt; (&lt;os&gt;)" — identifies the SDK, runtime, and OS to the API.
     /// </summary>
     public static string Build()
     {

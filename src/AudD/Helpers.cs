@@ -7,6 +7,14 @@ namespace AudD;
 /// <summary>Pure helpers — no HTTP, no SDK state.</summary>
 public static class AudDHelpers
 {
+    private static readonly Dictionary<string, Internal.TolerantParser.Expect> NotificationKnownProps = new(StringComparer.Ordinal)
+    {
+        ["radio_id"] = Internal.TolerantParser.Expect.Number,
+        ["stream_running"] = Internal.TolerantParser.Expect.Bool,
+        ["notification_code"] = Internal.TolerantParser.Expect.Number,
+        ["notification_message"] = Internal.TolerantParser.Expect.String,
+    };
+
     /// <summary>
     /// Compute the 9-char longpoll category locally from token + radio_id.
     ///
@@ -150,11 +158,16 @@ public static class AudDHelpers
 
         if (body.TryGetProperty("notification", out var nf) && nf.ValueKind == JsonValueKind.Object)
         {
-            var notif = nf.Deserialize(AudDJsonContext.Default.StreamCallbackNotification)
-                        ?? new StreamCallbackNotification();
+            // A wrong-typed field (e.g. notification_code as a string) must never
+            // kill a longpoll loop: degrade per-field rather than throwing.
+            var notif = Internal.TolerantParser.ParseObject(
+                nf,
+                AudDJsonContext.Default.StreamCallbackNotification,
+                NotificationKnownProps,
+                static () => new StreamCallbackNotification());
             long? time = null;
-            if (body.TryGetProperty("time", out var t) && t.ValueKind == JsonValueKind.Number)
-                time = t.GetInt64();
+            if (body.TryGetProperty("time", out var t) && t.ValueKind == JsonValueKind.Number && t.TryGetInt64(out var tv))
+                time = tv;
             return new CallbackEvent.Notification(notif with { Time = time, RawResponse = body });
         }
 

@@ -159,7 +159,7 @@ public sealed record MusicBrainzEntry
 
 /// <summary>
 /// Recognition result from the standard endpoint. Single type covering both
-/// public-catalog and custom-catalog matches — see spec §5.1.
+/// public-catalog and custom-catalog matches.
 /// </summary>
 public sealed record RecognitionResult
 {

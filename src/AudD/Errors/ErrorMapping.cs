@@ -87,8 +87,7 @@ internal static class ErrorRaiser
         {
             if (err.TryGetProperty("error_code", out var c))
             {
-                code = c.ValueKind == JsonValueKind.Number ? c.GetInt32() :
-                       (int.TryParse(c.GetString(), out var p) ? p : 0);
+                code = DecodeErrorCode(c);
             }
             if (err.TryGetProperty("error_message", out var m) && m.ValueKind == JsonValueKind.String)
             {
@@ -126,13 +125,34 @@ internal static class ErrorRaiser
             }
         }
 
-        if (customCatalogContext && code == 904)
+        if (customCatalogContext && (code == 904 || code == 905))
         {
             return new AudDCustomCatalogAccessException(code, message, httpStatus, requestId, requestedParams, requestMethod, branded, body);
         }
 
         var factory = AudDErrorMap.FactoryFor(code);
         return factory(code, message, httpStatus, requestId, requestedParams, requestMethod, branded, body);
+    }
+
+    /// <summary>
+    /// Decode an <c>error_code</c> element without throwing. Accepts an integer
+    /// number, a numeric string, or a fractional number (truncated); anything else
+    /// (bool, object, array, non-numeric string) decodes to 0.
+    /// </summary>
+    internal static int DecodeErrorCode(JsonElement c)
+    {
+        switch (c.ValueKind)
+        {
+            case JsonValueKind.Number:
+                if (c.TryGetInt32(out var i)) return i;
+                if (c.TryGetDouble(out var d)) return (int)d;
+                return 0;
+            case JsonValueKind.String:
+                return int.TryParse(c.GetString(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 0;
+            default:
+                return 0;
+        }
     }
 
     private static IReadOnlyDictionary<string, JsonElement> ToDict(JsonElement obj)

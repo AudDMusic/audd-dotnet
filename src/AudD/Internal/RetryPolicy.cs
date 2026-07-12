@@ -1,7 +1,7 @@
 namespace AudD.Internal;
 
 /// <summary>
-/// Determines which conditions are retryable for a given endpoint. See spec §7.1.
+/// Determines which conditions are retryable for a given endpoint.
 /// </summary>
 internal enum RetryClass
 {

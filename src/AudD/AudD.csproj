@@ -32,7 +32,7 @@
     <PublishAot Condition=" '$(TargetFramework)' == 'net6.0' ">false</PublishAot>
 
     <PackageId>AudD</PackageId>
-    <Version>1.5.12</Version>
+    <Version>1.5.13</Version>
     <Authors>AudD</Authors>
     <Company>AudD</Company>
     <Product>AudD</Product>
@@ -44,7 +44,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>audd;music-recognition;audio;fingerprinting</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>See CHANGELOG.md.</PackageReleaseNotes>
+    <PackageReleaseNotes>Lenient response parsing hardening: wrong-typed fields degrade per-field instead of failing a call. Per-call timeouts can now both shorten and extend the deadline, and the dependency-injection path preserves IHttpClientFactory handler rotation.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>

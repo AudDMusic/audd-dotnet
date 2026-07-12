@@ -6,11 +6,12 @@ namespace AudD;
 
 /// <summary>
 /// Streams namespace — set callback URL, manage real-time stream recognition,
-/// and longpoll for events. See spec §4.1.
+/// and longpoll for events.
 /// </summary>
 public sealed class Streams
 {
     private const int NoCallbackErrorCode = 19;
+    private const int LongpollTimeoutMarginSeconds = 15;
     private const string PreflightHint =
         "Longpoll won't deliver events because no callback URL is configured for this account. " +
         "Set one first via Streams.SetCallbackUrlAsync(...) — `https://audd.tech/empty/` is fine if " +
@@ -204,6 +205,10 @@ public sealed class Streams
         var longpollUrl = $"{AudD.ApiBase}/longpoll/";
         var capturedTimeout = timeout;
         var capturedCategory = category;
+        // The longpoll request itself holds the connection open for up to `timeout`
+        // seconds server-side. Give the HTTP request a deadline of the poll timeout
+        // plus margin so it isn't capped by the standard 60s transport default.
+        var requestDeadline = TimeSpan.FromSeconds(Math.Max(0, capturedTimeout) + LongpollTimeoutMarginSeconds);
 
         var fetcher = new LongpollFetcher(
             fetchAsync: async (since, ct) =>
@@ -222,7 +227,7 @@ public sealed class Streams
                 try
                 {
                     envelope = await Retry.RunAsync(
-                        c => _http.GetAsync(longpollUrl, qs, c),
+                        c => _http.GetAsync(longpollUrl, qs, c, requestTimeout: requestDeadline),
                         ReadPolicy(),
                         ct).ConfigureAwait(false);
                 }

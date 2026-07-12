@@ -66,35 +66,39 @@ public static class AudDServiceCollectionExtensions
             var loggerFactory = sp.GetService<ILoggerFactory>();
             var logger = loggerFactory?.CreateLogger<AudD>();
 
-            HttpClient? httpClient = null;
-            HttpClient? enterpriseHttpClient = null;
+            // Pull the optional onEvent hook the user wired via WithOnEvent(...).
+            var hook = sp.GetService<AudDEventHookHolder>()?.OnEvent;
+
             var clientFactory = sp.GetService<IHttpClientFactory>();
             if (clientFactory is not null)
             {
-                httpClient = opts.HttpClientName is null
-                    ? clientFactory.CreateClient()
-                    : clientFactory.CreateClient(opts.HttpClientName);
-                enterpriseHttpClient = opts.EnterpriseHttpClientName is null
-                    ? clientFactory.CreateClient()
-                    : clientFactory.CreateClient(opts.EnterpriseHttpClientName);
+                // Resolve a fresh HttpClient from the factory per request rather
+                // than capturing one at construction — that keeps IHttpClientFactory's
+                // handler rotation intact and never inherits the factory client's
+                // 100s default timeout (the SDK enforces its own deadline).
+                var httpName = opts.HttpClientName;
+                var enterpriseName = opts.EnterpriseHttpClientName;
+                Func<HttpClient> httpResolver = httpName is null
+                    ? () => clientFactory.CreateClient()
+                    : () => clientFactory.CreateClient(httpName);
+                Func<HttpClient> enterpriseResolver = enterpriseName is null
+                    ? () => clientFactory.CreateClient()
+                    : () => clientFactory.CreateClient(enterpriseName);
 
-                // Enterprise clients need a long timeout. Don't override if the
-                // caller explicitly named a client (they configured it themselves).
-                if (opts.EnterpriseHttpClientName is null && enterpriseHttpClient.Timeout < AudD.EnterpriseTimeout)
-                {
-                    enterpriseHttpClient.Timeout = AudD.EnterpriseTimeout;
-                }
+                return new AudD(
+                    apiToken: opts.ApiToken,
+                    httpClientResolver: httpResolver,
+                    enterpriseHttpClientResolver: enterpriseResolver,
+                    maxRetries: opts.MaxRetries,
+                    backoffFactor: opts.BackoffFactor,
+                    logger: logger,
+                    onEvent: hook);
             }
-
-            // Pull the optional onEvent hook the user wired via WithOnEvent(...).
-            var hook = sp.GetService<AudDEventHookHolder>()?.OnEvent;
 
             return new AudD(
                 apiToken: opts.ApiToken,
                 maxRetries: opts.MaxRetries,
                 backoffFactor: opts.BackoffFactor,
-                httpClient: httpClient,
-                enterpriseHttpClient: enterpriseHttpClient,
                 logger: logger,
                 onEvent: hook);
         });

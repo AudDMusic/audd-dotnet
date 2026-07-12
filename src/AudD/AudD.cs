@@ -33,6 +33,43 @@ public sealed class AudD : IDisposable, IAsyncDisposable
     /// <summary>Enterprise endpoint timeout (1 hour read).</summary>
     public static readonly TimeSpan EnterpriseTimeout = TimeSpan.FromHours(1);
 
+    // Expected JSON kinds for known RecognitionResult / EnterpriseMatch fields.
+    // Used by lenient parsing to drop a wrong-typed field rather than throw.
+    private static readonly Dictionary<string, TolerantParser.Expect> RecognitionResultKnownProps = new(StringComparer.Ordinal)
+    {
+        ["timecode"] = TolerantParser.Expect.String,
+        ["audio_id"] = TolerantParser.Expect.Number,
+        ["artist"] = TolerantParser.Expect.String,
+        ["title"] = TolerantParser.Expect.String,
+        ["album"] = TolerantParser.Expect.String,
+        ["release_date"] = TolerantParser.Expect.String,
+        ["label"] = TolerantParser.Expect.String,
+        ["song_link"] = TolerantParser.Expect.String,
+        ["isrc"] = TolerantParser.Expect.String,
+        ["upc"] = TolerantParser.Expect.String,
+        ["apple_music"] = TolerantParser.Expect.Object,
+        ["spotify"] = TolerantParser.Expect.Object,
+        ["deezer"] = TolerantParser.Expect.Object,
+        ["napster"] = TolerantParser.Expect.Object,
+        ["musicbrainz"] = TolerantParser.Expect.Array,
+    };
+
+    internal static readonly Dictionary<string, TolerantParser.Expect> EnterpriseMatchKnownProps = new(StringComparer.Ordinal)
+    {
+        ["score"] = TolerantParser.Expect.Number,
+        ["timecode"] = TolerantParser.Expect.String,
+        ["artist"] = TolerantParser.Expect.String,
+        ["title"] = TolerantParser.Expect.String,
+        ["album"] = TolerantParser.Expect.String,
+        ["release_date"] = TolerantParser.Expect.String,
+        ["label"] = TolerantParser.Expect.String,
+        ["isrc"] = TolerantParser.Expect.String,
+        ["upc"] = TolerantParser.Expect.String,
+        ["song_link"] = TolerantParser.Expect.String,
+        ["start_offset"] = TolerantParser.Expect.Number,
+        ["end_offset"] = TolerantParser.Expect.Number,
+    };
+
     private string _apiToken;
     private readonly int _maxRetries;
     private readonly double _backoffFactor;
@@ -102,6 +139,33 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         _logger = logger ?? NullLogger<AudD>.Instance;
         _http = new HttpTransport(resolved, httpClient, DefaultTimeout);
         _enterpriseHttp = new HttpTransport(resolved, enterpriseHttpClient, EnterpriseTimeout);
+        _events = new EventEmitter(onEvent, _logger);
+    }
+
+    /// <summary>
+    /// DI-oriented constructor that resolves a fresh <see cref="HttpClient"/> per
+    /// request from the supplied resolvers (backed by <c>IHttpClientFactory</c>),
+    /// so handler rotation is honored. The SDK's standard/enterprise default
+    /// deadlines are enforced independently of each resolved client's own timeout.
+    /// </summary>
+    internal AudD(
+        string? apiToken,
+        Func<HttpClient> httpClientResolver,
+        Func<HttpClient> enterpriseHttpClientResolver,
+        int maxRetries = 3,
+        double backoffFactor = 0.5,
+        ILogger<AudD>? logger = null,
+        Action<AudDEvent>? onEvent = null)
+    {
+        if (httpClientResolver is null) throw new ArgumentNullException(nameof(httpClientResolver));
+        if (enterpriseHttpClientResolver is null) throw new ArgumentNullException(nameof(enterpriseHttpClientResolver));
+        var resolved = ResolveToken(apiToken);
+        _apiToken = resolved;
+        _maxRetries = maxRetries < 1 ? 1 : maxRetries;
+        _backoffFactor = backoffFactor;
+        _logger = logger ?? NullLogger<AudD>.Instance;
+        _http = new HttpTransport(resolved, httpClientResolver, DefaultTimeout);
+        _enterpriseHttp = new HttpTransport(resolved, enterpriseHttpClientResolver, EnterpriseTimeout);
         _events = new EventEmitter(onEvent, _logger);
     }
 
@@ -215,13 +279,20 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         if (market is not null) fields["market"] = market;
 
         var body = await PostRecognitionAsync(_http, $"{ApiBase}/", "recognize", source, fields, timeout, cancellationToken).ConfigureAwait(false);
-        if (!body.TryGetProperty("result", out var result) || result.ValueKind == JsonValueKind.Null)
+        // A missing, null, or wrong-typed `result` reads as "no match" — response
+        // parsing never throws on missing or wrong-typed fields.
+        if (!body.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        var parsed = result.Deserialize(AudDJsonContext.Default.RecognitionResult)
-                     ?? new RecognitionResult();
+        // Never throw on a wrong-typed field in a successful result — degrade
+        // per-field (a bad field reads as null/0/absent).
+        var parsed = TolerantParser.ParseObject(
+            result,
+            AudDJsonContext.Default.RecognitionResult,
+            RecognitionResultKnownProps,
+            static () => new RecognitionResult());
         return parsed with { RawResponse = body.Clone() };
     }
 
@@ -335,21 +406,34 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         {
             foreach (var chunkEl in result.EnumerateArray())
             {
-                EnterpriseChunkResult? chunk;
-                try
+                if (chunkEl.ValueKind != JsonValueKind.Object) continue;
+
+                // Read the chunk offset defensively — a wrong-typed offset must not
+                // discard the chunk's songs, only leave StartSeconds/EndSeconds unset.
+                string? offset = null;
+                if (chunkEl.TryGetProperty("offset", out var offsetEl) && offsetEl.ValueKind == JsonValueKind.String)
                 {
-                    chunk = chunkEl.Deserialize(AudDJsonContext.Default.EnterpriseChunkResult);
+                    offset = offsetEl.GetString();
                 }
-                catch (JsonException)
+                var chunkBase = AudDHelpers.OffsetToSeconds(offset);
+
+                if (!chunkEl.TryGetProperty("songs", out var songsEl) || songsEl.ValueKind != JsonValueKind.Array)
                 {
-                    // Skip a malformed chunk rather than failing the whole response.
                     continue;
                 }
-                if (chunk?.Songs is null) continue;
-                var chunkBase = AudDHelpers.OffsetToSeconds(chunk.Offset);
-                foreach (var s in chunk.Songs)
+
+                foreach (var songEl in songsEl.EnumerateArray())
                 {
-                    var match = s with { RawResponse = chunkEl.Clone() };
+                    if (songEl.ValueKind != JsonValueKind.Object) continue;
+
+                    // Parse each song leniently — one bad field degrades that field,
+                    // never the song, and never the whole chunk.
+                    var s = TolerantParser.ParseObject(
+                        songEl,
+                        AudDJsonContext.Default.EnterpriseMatch,
+                        EnterpriseMatchKnownProps,
+                        static () => new EnterpriseMatch());
+                    var match = s with { RawResponse = songEl.Clone() };
                     if (chunkBase is double baseSeconds)
                     {
                         match = match with
@@ -375,7 +459,6 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var policy = new RetryPolicy(RetryClass.Recognition, _maxRetries, _backoffFactor);
-        using var cts = LinkTimeout(timeout, cancellationToken, out var effectiveToken);
         var startedAt = DateTime.UtcNow;
         _events.EmitRequest(method, url);
         HttpResponseEnvelope? lastResp = null;
@@ -388,10 +471,13 @@ public sealed class AudD : IDisposable, IAsyncDisposable
                         url,
                         extraFields => source.BuildContent(extraFields),
                         fields,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        // A caller-supplied timeout overrides the transport
+                        // default and can both shorten and extend the deadline.
+                        requestTimeout: timeout).ConfigureAwait(false);
                 },
                 policy,
-                effectiveToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
             lastResp = resp;
             var body = ResponseDecoder.DecodeOrThrow(resp, _logger);
             _events.EmitResponse(method, url, resp.RequestId, resp.HttpStatus, DateTime.UtcNow - startedAt);
@@ -419,22 +505,6 @@ public sealed class AudD : IDisposable, IAsyncDisposable
                 httpStatus: lastResp?.HttpStatus, requestId: lastResp?.RequestId);
             throw;
         }
-    }
-
-    internal static CancellationTokenSource? LinkTimeout(
-        TimeSpan? timeout,
-        CancellationToken caller,
-        out CancellationToken effective)
-    {
-        if (!timeout.HasValue)
-        {
-            effective = caller;
-            return null;
-        }
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(caller);
-        cts.CancelAfter(timeout.Value);
-        effective = cts.Token;
-        return cts;
     }
 
     /// <inheritdoc/>
