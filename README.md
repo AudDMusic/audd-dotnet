@@ -269,11 +269,12 @@ var audd = new AudD(
 
 | Class | Endpoints | Retried on |
 |---|---|---|
-| `Recognition` | `RecognizeAsync`, `RecognizeEnterpriseAsync`, `Advanced.*` | network errors and 5xx **before** the upload reaches the server |
-| `Read` | `Streams.ListAsync`, `Streams.GetCallbackUrlAsync`, longpoll | network errors and 5xx |
-| `Mutating` | `Streams.SetCallbackUrlAsync`, `Streams.AddAsync`, `Streams.DeleteAsync`, `CustomCatalog.AddAsync` | network errors and 5xx (idempotent on the server) |
+| `Recognition` | `RecognizeAsync`, `RecognizeEnterpriseAsync`, `Advanced.*` | transport failures (`HttpRequestException`) and 5xx responses |
+| `Read` | `Streams.ListAsync`, `Streams.GetCallbackUrlAsync`, longpoll | transport failures and timeouts, plus 408, 429, and 5xx |
+| `Mutating` | `Streams.SetCallbackUrlAsync`, `Streams.AddAsync`, `Streams.DeleteAsync` | transport failures only — never 5xx (the change may already have been applied) |
+| — | `CustomCatalog.AddAsync` | never retried — the upload is metered, and re-sending it could double-bill |
 
-Recognition calls won't double-bill your account: once the server has accepted bytes, a 5xx after that is surfaced rather than retried.
+A recognition call that times out after the audio has been sent is surfaced rather than retried — the server may already be processing it.
 
 **Inspection hook.** Pass `onEvent:` (constructor) or `WithOnEvent(...)` (DI) to receive an `AudDEvent` for every request / response / exception — useful for metrics, tracing, or dropping a `RequestId` into your logs. Events never carry the api_token or request bytes; exceptions thrown from the hook are swallowed so observability can't break the request path.
 
