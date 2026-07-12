@@ -20,6 +20,30 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
         "radio_id", "timestamp", "play_length", "results",
     };
 
+    /// <summary>
+    /// Expected shape per known <see cref="StreamCallbackSong"/> field, used to
+    /// coerce wrong-typed scalars (e.g. <c>score:"85"</c> → <c>85</c>,
+    /// <c>artist:123</c> → <c>"123"</c>) via the same policy as the standard-endpoint
+    /// lenient parser, rather than dropping the whole candidate.
+    /// </summary>
+    private static readonly Dictionary<string, TolerantParser.Expect> SongKnownProps = new(StringComparer.Ordinal)
+    {
+        ["artist"] = TolerantParser.Expect.String,
+        ["title"] = TolerantParser.Expect.String,
+        ["score"] = TolerantParser.Expect.Number,
+        ["album"] = TolerantParser.Expect.String,
+        ["release_date"] = TolerantParser.Expect.String,
+        ["label"] = TolerantParser.Expect.String,
+        ["song_link"] = TolerantParser.Expect.String,
+        ["isrc"] = TolerantParser.Expect.String,
+        ["upc"] = TolerantParser.Expect.String,
+        ["apple_music"] = TolerantParser.Expect.Object,
+        ["spotify"] = TolerantParser.Expect.Object,
+        ["deezer"] = TolerantParser.Expect.Object,
+        ["napster"] = TolerantParser.Expect.Object,
+        ["musicbrainz"] = TolerantParser.Expect.Array,
+    };
+
     public override StreamCallbackMatch Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
@@ -42,14 +66,15 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
             {
                 case "radio_id":
                     // A successful callback must never fail to parse on a missing or
-                    // wrong-typed radio_id: leave it null rather than throwing.
-                    radioId = TryReadInt64(ref reader);
+                    // wrong-typed radio_id: coerce a convertible value (e.g. "7" → 7),
+                    // else leave it null rather than throwing.
+                    radioId = CoerceInt64(ref reader);
                     break;
                 case "timestamp":
-                    timestamp = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
+                    timestamp = CoerceString(ref reader);
                     break;
                 case "play_length":
-                    playLength = TryReadInt64(ref reader);
+                    playLength = CoerceInt64(ref reader);
                     break;
                 case "results":
                     if (reader.TokenType == JsonTokenType.StartArray)
@@ -57,17 +82,20 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
                         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
                         {
                             using var doc = JsonDocument.ParseValue(ref reader);
-                            // Skip a malformed candidate (wrong-typed field) rather than
-                            // failing the whole callback parse.
-                            try
-                            {
-                                var s = doc.RootElement.Deserialize(AudDJsonContext.Default.StreamCallbackSong);
-                                if (s is not null) songs.Add(s);
-                            }
-                            catch (JsonException)
-                            {
-                                // ignore this candidate
-                            }
+                            // Skip a non-object candidate (e.g. a bare string) rather
+                            // than surfacing an empty song for it.
+                            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                                continue;
+                            // Coerce wrong-typed candidate fields (score:"85" → 85,
+                            // artist:123 → "123") the same way the standard-endpoint
+                            // parser does, degrading only un-coercible fields to null —
+                            // rather than dropping the whole candidate.
+                            var s = TolerantParser.ParseObject(
+                                doc.RootElement,
+                                AudDJsonContext.Default.StreamCallbackSong,
+                                SongKnownProps,
+                                static () => new StreamCallbackSong());
+                            songs.Add(s);
                         }
                     }
                     else if (reader.TokenType == JsonTokenType.Null)
@@ -114,14 +142,25 @@ internal sealed class StreamCallbackMatchJsonConverter : JsonConverter<StreamCal
     }
 
     /// <summary>
-    /// Read the current value as an Int64 when it is a JSON number that fits;
-    /// returns null for nulls, strings, or any other shape — never throws.
+    /// Read the current value and coerce it to an Int64 per the family policy
+    /// (number → truncate toward zero, numeric string → parse, bool → 0/1);
+    /// returns null for nulls and un-coercible shapes — never throws.
     /// </summary>
-    private static long? TryReadInt64(ref Utf8JsonReader reader)
+    private static long? CoerceInt64(ref Utf8JsonReader reader)
     {
-        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out var n))
-            return n;
-        return null;
+        using var doc = JsonDocument.ParseValue(ref reader);
+        return TolerantParser.CoerceToInt64(doc.RootElement);
+    }
+
+    /// <summary>
+    /// Read the current value and coerce it to a string per the family policy
+    /// (string passes through, number → raw token text, bool → "true"/"false");
+    /// object/array/null → null.
+    /// </summary>
+    private static string? CoerceString(ref Utf8JsonReader reader)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        return TolerantParser.CoerceToString(doc.RootElement);
     }
 
     public override void Write(Utf8JsonWriter writer, StreamCallbackMatch value, JsonSerializerOptions options)

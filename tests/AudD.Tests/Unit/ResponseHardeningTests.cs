@@ -46,27 +46,61 @@ public class ResponseHardeningTests : IDisposable
     // ---- D1: lenient recognition parsing ----
 
     [Fact]
-    public async Task RecognizeAsync_WrongTypedAudioId_DegradesToNull_DoesNotThrow()
+    public async Task RecognizeAsync_StringAudioId_CoercesToNumber_DoesNotThrow()
     {
         RespondRecognize("""{"status":"success","result":{"timecode":"00:56","audio_id":"42","artist":"A","title":"T"}}""");
         await using var audd = NewClient();
         var result = await audd.RecognizeAsync("https://x.example/y.mp3");
         Assert.NotNull(result);
-        Assert.Null(result!.AudioId);
+        // A numeric string coerces to the numeric target rather than dropping.
+        Assert.Equal(42L, result!.AudioId);
         Assert.Equal("A", result.Artist);
         Assert.Equal("00:56", result.Timecode);
     }
 
     [Fact]
-    public async Task RecognizeAsync_WrongTypedTimecode_DegradesToDefault_DoesNotThrow()
+    public async Task RecognizeAsync_NonNumericAudioId_DegradesToNull_DoesNotThrow()
+    {
+        RespondRecognize("""{"status":"success","result":{"timecode":"00:56","audio_id":"abc","artist":"A","title":"T"}}""");
+        await using var audd = NewClient();
+        var result = await audd.RecognizeAsync("https://x.example/y.mp3");
+        Assert.NotNull(result);
+        // A non-numeric string is not convertible, so it degrades to null (never 0).
+        Assert.Null(result!.AudioId);
+        Assert.Equal("A", result.Artist);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_NumberTimecode_CoercesToString_DoesNotThrow()
     {
         RespondRecognize("""{"status":"success","result":{"timecode":42,"artist":"A","title":"T"}}""");
         await using var audd = NewClient();
         var result = await audd.RecognizeAsync("https://x.example/y.mp3");
         Assert.NotNull(result);
-        // The wrong-typed timecode is dropped; the rest of the result survives.
-        Assert.True(string.IsNullOrEmpty(result!.Timecode));
+        // A number coerces to its raw token text for a string field.
+        Assert.Equal("42", result!.Timecode);
         Assert.Equal("A", result.Artist);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_FloatArtist_CoercesToRawTokenString()
+    {
+        RespondRecognize("""{"status":"success","result":{"timecode":"00:56","artist":8.5,"title":"T"}}""");
+        await using var audd = NewClient();
+        var result = await audd.RecognizeAsync("https://x.example/y.mp3");
+        Assert.NotNull(result);
+        // A float renders as its exact raw JSON token (no locale comma, no "8").
+        Assert.Equal("8.5", result!.Artist);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_IntArtist_CoercesToRawTokenString()
+    {
+        RespondRecognize("""{"status":"success","result":{"timecode":"00:56","artist":123,"title":"T"}}""");
+        await using var audd = NewClient();
+        var result = await audd.RecognizeAsync("https://x.example/y.mp3");
+        Assert.NotNull(result);
+        Assert.Equal("123", result!.Artist);
     }
 
     [Fact]
@@ -93,7 +127,7 @@ public class ResponseHardeningTests : IDisposable
     // ---- D1: lenient enterprise parsing (per-field / per-song, not whole-chunk) ----
 
     [Fact]
-    public async Task RecognizeEnterpriseAsync_OneWrongTypedFieldInSong_KeepsSong_DegradesField()
+    public async Task RecognizeEnterpriseAsync_StringScoreInSong_CoercesToNumber_KeepsSong()
     {
         _server.Given(Request.Create().WithPath("/").UsingPost())
                .RespondWith(Response.Create().WithStatusCode(200)
@@ -109,10 +143,51 @@ public class ResponseHardeningTests : IDisposable
         await using var audd = NewClient();
         var matches = await audd.RecognizeEnterpriseAsync("https://x.example/y.mp3", limit: 1);
         Assert.Equal(2, matches.Count);
-        // Wrong-typed score degrades to null; the rest of the song survives.
-        Assert.Null(matches[0].Score);
+        // A numeric-string score coerces to the numeric target; the song survives.
+        Assert.Equal(98, matches[0].Score);
         Assert.Equal("A", matches[0].Artist);
         Assert.Equal(95, matches[1].Score);
+    }
+
+    [Fact]
+    public async Task RecognizeEnterpriseAsync_NonNumericScoreInSong_DegradesToNull_KeepsSong()
+    {
+        _server.Given(Request.Create().WithPath("/").UsingPost())
+               .RespondWith(Response.Create().WithStatusCode(200)
+                   .WithHeader("Content-Type", "application/json")
+                   .WithBody("""
+                   {"status":"success","result":[
+                     {"offset":"00:00","songs":[
+                       {"artist":"A","title":"T","score":"abc","timecode":"00:01"}
+                     ]}
+                   ]}
+                   """));
+        await using var audd = NewClient();
+        var matches = await audd.RecognizeEnterpriseAsync("https://x.example/y.mp3", limit: 1);
+        var m = Assert.Single(matches);
+        // A non-numeric score is not convertible → null (never a garbage 0).
+        Assert.Null(m.Score);
+        Assert.Equal("A", m.Artist);
+    }
+
+    [Fact]
+    public async Task RecognizeEnterpriseAsync_FloatScoreInSong_TruncatesTowardZero()
+    {
+        _server.Given(Request.Create().WithPath("/").UsingPost())
+               .RespondWith(Response.Create().WithStatusCode(200)
+                   .WithHeader("Content-Type", "application/json")
+                   .WithBody("""
+                   {"status":"success","result":[
+                     {"offset":"00:00","songs":[
+                       {"artist":"A","title":"T","score":7.9,"timecode":"00:01"}
+                     ]}
+                   ]}
+                   """));
+        await using var audd = NewClient();
+        var matches = await audd.RecognizeEnterpriseAsync("https://x.example/y.mp3", limit: 1);
+        var m = Assert.Single(matches);
+        // A fractional number for an int field truncates toward zero (7.9 → 7).
+        Assert.Equal(7, m.Score);
     }
 
     [Fact]
