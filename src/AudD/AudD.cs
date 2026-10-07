@@ -217,6 +217,8 @@ public sealed class AudD : IDisposable, IAsyncDisposable
     /// <summary>
     /// Recognize a short audio clip. Source may be a URL string, a file path, a
     /// <see cref="FileInfo"/>, a <see cref="System.IO.Stream"/>, or a byte buffer.
+    /// The first 12 seconds of audio are analyzed; use <c>RecognizeEnterpriseAsync</c>
+    /// to scan beyond them.
     /// Returns <c>null</c> when the server returns success with <c>result=null</c>.
     /// </summary>
     public async Task<RecognitionResult?> RecognizeAsync(

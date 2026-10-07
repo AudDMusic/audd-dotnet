@@ -122,7 +122,7 @@ public sealed class AudDCustomCatalogAccessException : AudDSubscriptionException
     private static string BuildOverriddenMessage(string original) =>
         "Adding songs to your custom catalog requires enterprise access that isn't enabled on your account.\n\n" +
         "Note: the custom-catalog endpoint is for adding songs to your private fingerprint database, not for music recognition. " +
-        "If you intended to identify music, use RecognizeAsync(...) (or RecognizeEnterpriseAsync(...) for files longer than 25 seconds) instead.\n\n" +
+        "If you intended to identify music, use RecognizeAsync(...) (or RecognizeEnterpriseAsync(...) to scan beyond the first 12 seconds of a file) instead.\n\n" +
         "To request custom-catalog access, contact api@audd.io.\n\n" +
         $"[Server message: {original}]";
 }

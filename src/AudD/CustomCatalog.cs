@@ -32,8 +32,8 @@ public sealed class CustomCatalog
     /// <b>This is NOT how you submit audio for music recognition.</b> For recognition,
     /// use <see cref="AudD.RecognizeAsync(string, IEnumerable{string}?, string?, IDictionary{string,string}?, TimeSpan?, CancellationToken)"/>
     /// (or <see cref="AudD.RecognizeEnterpriseAsync(string, IEnumerable{string}?, int?, int?, int?, int?, bool?, bool?, IDictionary{string,string}?, TimeSpan?, CancellationToken)"/>
-    /// for files longer than 25 seconds). This method adds a song to your <b>private
-    /// fingerprint catalog</b> so AudD's recognition can later identify <i>your own</i>
+    /// to scan beyond the first 12 seconds of a file). This method adds a song to your
+    /// <b>private fingerprint catalog</b> so AudD's recognition can later identify <i>your own</i>
     /// tracks for <i>your account only</i>. Requires special access — contact api@audd.io
     /// if you need it enabled.
     ///
