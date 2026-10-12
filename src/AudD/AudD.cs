@@ -58,6 +58,7 @@ public sealed class AudD : IDisposable, IAsyncDisposable
     {
         ["score"] = TolerantParser.Expect.Number,
         ["timecode"] = TolerantParser.Expect.String,
+        ["audio_id"] = TolerantParser.Expect.Number,
         ["artist"] = TolerantParser.Expect.String,
         ["title"] = TolerantParser.Expect.String,
         ["album"] = TolerantParser.Expect.String,

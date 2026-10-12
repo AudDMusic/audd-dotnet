@@ -171,6 +171,31 @@ public class ResponseHardeningTests : IDisposable
     }
 
     [Fact]
+    public async Task RecognizeEnterpriseAsync_StringAudioIdInSong_CoercesToNumber_KeepsSong()
+    {
+        _server.Given(Request.Create().WithPath("/").UsingPost())
+               .RespondWith(Response.Create().WithStatusCode(200)
+                   .WithHeader("Content-Type", "application/json")
+                   .WithBody("""
+                   {"status":"success","result":[
+                     {"offset":"00:24","songs":[
+                       {"score":100,"timecode":"01:45","audio_id":"146","start_offset":0,"end_offset":11960},
+                       {"score":100,"timecode":"01:50","audio_id":"abc"}
+                     ]}
+                   ]}
+                   """));
+        await using var audd = NewClient();
+        var matches = await audd.RecognizeEnterpriseAsync("https://x.example/y.mp3", limit: 1);
+        Assert.Equal(2, matches.Count);
+        // A numeric-string audio_id coerces to the numeric target.
+        Assert.Equal(146L, matches[0].AudioId);
+        Assert.True(matches[0].IsCustomMatch);
+        // A non-numeric audio_id degrades to null (never a garbage 0); the song survives.
+        Assert.Null(matches[1].AudioId);
+        Assert.Equal("01:50", matches[1].Timecode);
+    }
+
+    [Fact]
     public async Task RecognizeEnterpriseAsync_FloatScoreInSong_TruncatesTowardZero()
     {
         _server.Given(Request.Create().WithPath("/").UsingPost())

@@ -104,6 +104,22 @@ public class ContractTests
         Assert.Single(chunks);
         Assert.Equal("GBUM71403885", chunks[0].Isrc);
         Assert.Equal("00602547037169", chunks[0].Upc);
+        Assert.Null(chunks[0].AudioId);
+        Assert.False(chunks[0].IsCustomMatch);
+        Assert.True(chunks[0].IsPublicMatch);
+    }
+
+    [Fact]
+    public void EnterpriseCustomMatch_HasAudioId()
+    {
+        var body = Load("enterprise_custom_match.json");
+        var chunk = body.GetProperty("result")[0].Deserialize<EnterpriseChunkResult>(JsonOpts.Default)!;
+        var m = Assert.Single(chunk.Songs);
+        Assert.Equal(146L, m.AudioId);
+        Assert.Equal("01:45", m.Timecode);
+        Assert.True(m.IsCustomMatch);
+        Assert.False(m.IsPublicMatch);
+        Assert.False(m.Extras.ContainsKey("audio_id"));
     }
 
     [Fact]

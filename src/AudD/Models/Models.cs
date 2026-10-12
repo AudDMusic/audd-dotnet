@@ -334,6 +334,10 @@ public sealed record EnterpriseMatch
     /// </summary>
     [JsonPropertyName("score")] public int? Score { get; init; }
     [JsonPropertyName("timecode")] public string Timecode { get; init; } = "";
+
+    /// <summary>Set for custom-catalog matches: the ID you assigned when adding the song.</summary>
+    [JsonPropertyName("audio_id")] public long? AudioId { get; init; }
+
     [JsonPropertyName("artist")] public string? Artist { get; init; }
     [JsonPropertyName("title")] public string? Title { get; init; }
     [JsonPropertyName("album")] public string? Album { get; init; }
@@ -368,6 +372,12 @@ public sealed record EnterpriseMatch
 
     [JsonIgnore]
     public JsonElement RawResponse { get; init; }
+
+    /// <summary>True when <see cref="AudioId"/> is set (custom-catalog match).</summary>
+    [JsonIgnore] public bool IsCustomMatch => AudioId.HasValue;
+
+    /// <summary>True when this looks like a public-catalog match (artist/title set, no <see cref="AudioId"/>).</summary>
+    [JsonIgnore] public bool IsPublicMatch => !AudioId.HasValue && (!string.IsNullOrEmpty(Artist) || !string.IsNullOrEmpty(Title));
 
     /// <summary>
     /// Cover-art URL for <c>lis.tn</c>-hosted song_links: appends <c>?thumb</c>
