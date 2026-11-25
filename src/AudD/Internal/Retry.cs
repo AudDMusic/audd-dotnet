@@ -33,6 +33,13 @@ internal static class Retry
             {
                 throw;
             }
+            catch (RecognitionSource.SourceNotReplayableException) when (lastResp is not null || lastExc is not null)
+            {
+                // The body can't be sent again: report the failure that asked for the retry.
+                if (lastResp is not null) return lastResp;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(lastExc!).Throw();
+                throw;
+            }
             catch (Exception exc)
             {
                 lastExc = exc;

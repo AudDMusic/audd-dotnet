@@ -142,7 +142,7 @@ internal abstract class RecognitionSource
             {
                 if (!_seekable)
                 {
-                    throw new InvalidOperationException(
+                    throw new SourceNotReplayableException(
                         "Cannot retry an unseekable Stream source. Buffer the content into a byte[] " +
                         "or use a FileInfo / URL.");
                 }
@@ -161,6 +161,16 @@ internal abstract class RecognitionSource
             }
             return form;
         }
+    }
+
+    /// <summary>
+    /// Thrown when a source can't produce another request body (an unseekable
+    /// stream after its first attempt). The retry loop then reports the failure
+    /// that asked for the retry instead.
+    /// </summary>
+    internal sealed class SourceNotReplayableException : InvalidOperationException
+    {
+        public SourceNotReplayableException(string message) : base(message) { }
     }
 
     /// <summary>

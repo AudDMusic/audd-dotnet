@@ -27,4 +27,9 @@
     <ProjectReference Include="..\..\src\AudD\AudD.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Copies of audd-openapi fixtures the unit tests replay through a fake transport. -->
+    <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

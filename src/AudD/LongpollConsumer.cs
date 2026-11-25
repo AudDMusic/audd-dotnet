@@ -1,4 +1,3 @@
-using System.Text.Json;
 using AudD.Internal;
 
 namespace AudD;
@@ -12,14 +11,19 @@ namespace AudD;
 /// <para>Iterate via <see cref="Iterate"/>, which returns a
 /// <see cref="LongpollPoll"/> handle with three typed streams (Matches /
 /// Notifications / Errors). Disposing the consumer or the poll stops the
-/// background fetch loop.</para>
+/// background fetch loop, including a request or a wait in progress.</para>
 ///
 /// <para>Hardening:</para>
 /// <list type="bullet">
-///   <item><description>HTTP non-2xx → <see cref="AudDServerException"/> on the Errors stream.</description></item>
-///   <item><description>2xx with non-JSON body → <see cref="AudDSerializationException"/> on Errors.</description></item>
-///   <item><description>READ-class retries on 5xx + transport errors.</description></item>
-///   <item><description>Configurable <c>maxRetries</c> / <c>backoffFactor</c>.</description></item>
+///   <item><description>An error response from the server (e.g. a <c>timeout</c> outside 1–120)
+///     → <see cref="AudDInvalidRequestException"/> on the Errors stream, and polling stops.</description></item>
+///   <item><description>HTTP non-2xx after the retries → <see cref="AudDServerException"/> on Errors.</description></item>
+///   <item><description>Transport errors after the retries → <see cref="AudDConnectionException"/> on Errors.</description></item>
+///   <item><description>READ-class retries on 408/429/5xx and transport errors, with
+///     configurable <c>maxRetries</c> / <c>backoffFactor</c>.</description></item>
+///   <item><description>A 2xx body in none of the documented shapes (including non-JSON)
+///     delivers nothing; the next request waits 1 second, doubling up to 30 seconds
+///     while such responses continue.</description></item>
 /// </list>
 /// </summary>
 public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
@@ -27,15 +31,20 @@ public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
     /// <summary>The longpoll endpoint URL.</summary>
     public const string LongpollUrl = "https://api.audd.io/longpoll/";
 
-    private const int HttpClientErrorFloor = 400;
+    private const int LongpollTimeoutMarginSeconds = 15;
 
     private readonly string _category;
-    private readonly HttpClient _client;
-    private readonly bool _ownsClient;
+    private readonly HttpTransport _http;
     private readonly RetryPolicy _policy;
-    private bool _disposed;
+    private readonly CancellationTokenSource _disposed = new();
+    private int _disposedFlag;
 
-    /// <summary>Construct a tokenless consumer for a given longpoll category.</summary>
+    /// <summary>
+    /// Construct a tokenless consumer for a given longpoll category. An injected
+    /// <paramref name="httpClient"/>'s own <see cref="HttpClient.Timeout"/> must be
+    /// longer than the poll <c>timeout</c>; the SDK's own client has none and gives
+    /// each request a deadline of the poll timeout plus 15 seconds.
+    /// </summary>
     public LongpollConsumer(
         string category,
         HttpClient? httpClient = null,
@@ -44,35 +53,34 @@ public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
     {
         if (string.IsNullOrEmpty(category)) throw new ArgumentException("category required", nameof(category));
         _category = category;
-        if (httpClient is not null)
-        {
-            _client = httpClient;
-            _ownsClient = false;
-        }
-        else
-        {
-            _client = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
-            _ownsClient = true;
-        }
-        if (!_client.DefaultRequestHeaders.UserAgent.Any())
-        {
-            _client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgent.Build());
-        }
+        // Tokenless transport: only GetWithoutAuthAsync is used, so no api_token is ever sent.
+        _http = new HttpTransport(apiToken: string.Empty, httpClient, defaultTimeout: null);
         _policy = new RetryPolicy(RetryClass.Read, maxRetries < 1 ? 1 : maxRetries, backoffFactor);
     }
 
+    /// <summary>Replaces the wait between requests that moved nothing forward (tests only).</summary>
+    internal Func<TimeSpan, CancellationToken, Task>? IdleDelay { get; set; }
+
     /// <summary>
     /// Start a longpoll subscription. Returns a <see cref="LongpollPoll"/> handle.
-    /// Dispose the handle (or the consumer) to stop polling. Keepalive responses
-    /// are silently absorbed — only real matches and lifecycle notifications reach
-    /// the consumer.
+    /// Dispose the handle (or the consumer) to stop polling. Each event reaches
+    /// Matches or Notifications once, in order; "no events before timeout"
+    /// responses deliver nothing.
     /// </summary>
+    /// <param name="sinceTime">Server timestamp (milliseconds) to resume after; only newer events are delivered.</param>
+    /// <param name="timeout">Seconds the server holds each request open waiting for events, 1 to 120 (default 50).</param>
+    /// <param name="cancellationToken">Cancels the poll.</param>
     public LongpollPoll Iterate(
         long? sinceTime = null,
         int timeout = 50,
         CancellationToken cancellationToken = default)
     {
+        if (System.Threading.Volatile.Read(ref _disposedFlag) != 0)
+        {
+            throw new ObjectDisposedException(nameof(LongpollConsumer));
+        }
         var capturedTimeout = timeout;
+        var requestDeadline = TimeSpan.FromSeconds(Math.Max(0, capturedTimeout) + LongpollTimeoutMarginSeconds);
         var fetcher = new LongpollFetcher(
             fetchAsync: async (since, ct) =>
             {
@@ -88,7 +96,7 @@ public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
                 try
                 {
                     envelope = await Retry.RunAsync(
-                        c => SendAsync(qs, c),
+                        c => _http.GetWithoutAuthAsync(LongpollUrl, qs, c, requestTimeout: requestDeadline),
                         _policy,
                         ct).ConfigureAwait(false);
                 }
@@ -96,77 +104,26 @@ public sealed class LongpollConsumer : IDisposable, IAsyncDisposable
                 {
                     throw new AudDConnectionException(exc.Message, exc);
                 }
-
-                if (envelope.HttpStatus >= HttpClientErrorFloor)
+                catch (TaskCanceledException exc) when (!ct.IsCancellationRequested)
                 {
-                    throw new AudDServerException(
-                        errorCode: 0,
-                        serverMessage: $"Longpoll endpoint returned HTTP {envelope.HttpStatus}",
-                        httpStatus: envelope.HttpStatus,
-                        requestId: envelope.RequestId);
+                    // The request deadline fired, not the caller's token.
+                    throw new AudDConnectionException(exc.Message, exc);
                 }
-                if (envelope.JsonBody is null || envelope.JsonBody.Value.ValueKind != JsonValueKind.Object)
-                {
-                    throw new AudDSerializationException("Longpoll response was not a JSON object", envelope.RawText);
-                }
-                return envelope.JsonBody.Value;
+                return LongpollResponse.Read(envelope);
             },
-            initialSinceTime: sinceTime);
+            initialSinceTime: sinceTime,
+            delay: IdleDelay);
 
-        return LongpollPoll.Start(fetcher, cancellationToken);
+        return LongpollPoll.Start(fetcher, cancellationToken, _disposed.Token);
     }
 
-    private async Task<HttpResponseEnvelope> SendAsync(IDictionary<string, string> qs, CancellationToken cancellationToken)
-    {
-        var sb = new System.Text.StringBuilder(LongpollUrl);
-        sb.Append('?');
-        bool first = true;
-        foreach (var kv in qs)
-        {
-            if (!first) sb.Append('&');
-            first = false;
-            sb.Append(Uri.EscapeDataString(kv.Key));
-            sb.Append('=');
-            sb.Append(Uri.EscapeDataString(kv.Value));
-        }
-        using var req = new HttpRequestMessage(HttpMethod.Get, sb.ToString());
-        using var resp = await _client.SendAsync(req, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
-        var raw = await resp.Content.ReadAsStringAsync(
-#if NET6_0_OR_GREATER
-            cancellationToken
-#endif
-        ).ConfigureAwait(false);
-
-        JsonElement? body = null;
-        try
-        {
-            using var doc = JsonDocument.Parse(raw);
-            body = doc.RootElement.Clone();
-        }
-        catch (JsonException)
-        {
-            body = null;
-        }
-
-        string? rid = null;
-        if (resp.Headers.TryGetValues("X-Request-Id", out var rids)) rid = rids.FirstOrDefault();
-        else if (resp.Headers.TryGetValues("x-request-id", out var rids2)) rid = rids2.FirstOrDefault();
-
-        return new HttpResponseEnvelope
-        {
-            JsonBody = body,
-            HttpStatus = (int)resp.StatusCode,
-            RequestId = rid,
-            RawText = raw,
-        };
-    }
-
-    /// <inheritdoc/>
+    /// <summary>Stop every poll started by <see cref="Iterate"/> and release the HTTP client the consumer owns.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        if (_ownsClient) _client.Dispose();
+        if (System.Threading.Interlocked.Exchange(ref _disposedFlag, 1) != 0) return;
+        try { _disposed.Cancel(); } catch (AggregateException) { /* a cancellation callback threw; still tear down */ }
+        _disposed.Dispose();
+        _http.Dispose();
     }
 
     /// <inheritdoc/>

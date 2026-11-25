@@ -7,9 +7,9 @@ using Xunit;
 namespace AudD.Tests.Unit;
 
 /// <summary>
-/// Custom-catalog upload is metered per call. The SDK MUST NOT auto-retry — even on
-/// otherwise-retryable transient failures — because a retry could double-charge the
-/// account for the same fingerprinting work. These tests pin that contract: regardless
+/// A custom-catalog upload is sent once and never retried automatically — even on
+/// otherwise-retryable transient failures — so the caller checks the error before
+/// sending it again. These tests pin that contract: regardless
 /// of the user-configured maxRetries (here a deliberately-high value of 5), exactly
 /// ONE HTTP attempt is issued per AddAsync call for both 5xx and pre-upload connect
 /// errors. Other mutating operations (Streams.AddAsync, Streams.SetCallbackUrlAsync,
@@ -39,7 +39,7 @@ public class CustomCatalogNoRetryTests : IDisposable
     {
         // 5xx normally has no effect on RetryClass.Mutating either (status retries are
         // already off for that class), but pin the count anyway so a future tweak that
-        // adds 5xx-retry to mutating ops won't silently re-enable double-billing here.
+        // adds 5xx-retry to mutating ops won't silently re-enable upload retries here.
         _server.Given(Request.Create().WithPath("/upload/").UsingPost())
                .RespondWith(Response.Create().WithStatusCode(503)
                    .WithHeader("Content-Type", "text/html")

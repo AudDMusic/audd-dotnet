@@ -98,6 +98,12 @@ public sealed class Advanced
             _events.EmitException(method, url, exc, DateTime.UtcNow - startedAt);
             throw new AudDConnectionException(exc.Message, exc);
         }
+        catch (TaskCanceledException exc) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The SDK's request deadline fired, not the caller's token.
+            _events.EmitException(method, url, exc, DateTime.UtcNow - startedAt);
+            throw new AudDConnectionException(exc.Message, exc);
+        }
         catch (AudDApiException exc)
         {
             _events.EmitException(method, url, exc, DateTime.UtcNow - startedAt,

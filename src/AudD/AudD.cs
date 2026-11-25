@@ -8,9 +8,13 @@ namespace AudD;
 /// <summary>
 /// Top-level client for the AudD music recognition API. Async-only public surface.
 ///
+/// <para>The class shares its name with the <c>AudD</c> namespace, so code outside
+/// the namespace names it <c>AudD.AudD</c>; a bare <c>AudD</c> resolves to the
+/// namespace.</para>
+///
 /// <example>
 /// <code>
-/// await using var audd = new AudD("test");
+/// await using var audd = new AudD.AudD("your-api-token");
 /// var r = await audd.RecognizeAsync("https://audd.tech/example.mp3");
 /// Console.WriteLine($"{r?.Artist} - {r?.Title}");
 /// </code>
@@ -118,6 +122,15 @@ public sealed class AudD : IDisposable, IAsyncDisposable
     /// <c>AUDD_API_TOKEN</c> from the environment; if that is also unset,
     /// throws <see cref="ArgumentException"/>.
     ///
+    /// <para><paramref name="httpClient"/> serves the standard endpoint (recognition,
+    /// streams, longpoll, custom catalog); <paramref name="enterpriseHttpClient"/>
+    /// serves <see cref="RecognizeEnterpriseAsync(string, IEnumerable{string}?, int?, int?, int?, int?, bool?, bool?, IDictionary{string,string}?, TimeSpan?, CancellationToken)"/>.
+    /// When <paramref name="enterpriseHttpClient"/> is null, enterprise calls use a
+    /// client the SDK creates. To send them through your proxy or mTLS setup too,
+    /// pass a second client with the same handler settings and
+    /// <c>Timeout = Timeout.InfiniteTimeSpan</c>; the SDK applies its own 1-hour
+    /// enterprise deadline per request.</para>
+    ///
     /// <para><paramref name="onEvent"/> is an optional inspection hook (off by
     /// default) — see <see cref="AudDEvent"/>. Hook exceptions are caught and
     /// logged at debug-level via <see cref="ILogger"/> so observability never
@@ -199,7 +212,7 @@ public sealed class AudD : IDisposable, IAsyncDisposable
         throw new ArgumentException(
             $"AudD apiToken not supplied and {TokenEnvVar} env var is unset. " +
             "Get a token at https://dashboard.audd.io and pass it as " +
-            $"new AudD(apiToken: ...) or set {TokenEnvVar}.",
+            $"new AudD.AudD(apiToken: ...) or set {TokenEnvVar}.",
             nameof(apiToken));
     }
 

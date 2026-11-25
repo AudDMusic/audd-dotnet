@@ -217,5 +217,33 @@ public class ContractTests
         var body = Load("longpoll_no_events.json");
         Assert.True(body.TryGetProperty("timeout", out var t));
         Assert.Equal("no events before timeout", t.GetString());
+
+        var batch = LongpollResponse.Read(new HttpResponseEnvelope { JsonBody = body, HttpStatus = 200 });
+        Assert.Empty(batch.Events);
+        Assert.Equal(1777901270049L, batch.Timestamp);
+    }
+
+    [Fact]
+    public void LongpollEvents_ReadsBothMatchesAndTheNewestTimestamp()
+    {
+        var body = Load("longpoll_events.json");
+        var batch = LongpollResponse.Read(new HttpResponseEnvelope { JsonBody = body, HttpStatus = 200 });
+
+        Assert.Equal(2, batch.Events.Count);
+        var first = Assert.IsType<CallbackEvent.Match>(batch.Events[0]).Value;
+        var second = Assert.IsType<CallbackEvent.Match>(batch.Events[1]).Value;
+        Assert.Equal("Alan Walker, A$AP Rocky", first.Song.Artist);
+        Assert.Equal("Tears For Fears", second.Song.Artist);
+        Assert.Equal(7L, second.RadioId);
+        Assert.Equal(1795547548112L, batch.Timestamp);
+    }
+
+    [Fact]
+    public void LongpollError_RaisesInvalidRequestWithTheServerText()
+    {
+        var body = Load("longpoll_error.json");
+        var exc = Assert.Throws<AudDInvalidRequestException>(
+            () => LongpollResponse.Read(new HttpResponseEnvelope { JsonBody = body, HttpStatus = 200 }));
+        Assert.Equal(body.GetProperty("error").GetString(), exc.ServerMessage);
     }
 }

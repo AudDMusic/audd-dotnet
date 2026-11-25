@@ -21,9 +21,7 @@ Get your API token at [dashboard.audd.io](https://dashboard.audd.io).
 Recognize from a URL:
 
 ```csharp
-using AudD;
-
-var audd = new AudD("your-api-token");
+var audd = new AudD.AudD("your-api-token");
 var result = await audd.RecognizeAsync("https://audd.tech/example.mp3");
 if (result is not null)
 {
@@ -31,12 +29,12 @@ if (result is not null)
 }
 ```
 
+The client class `AudD` lives in the namespace `AudD`, so C# code names it in full as `AudD.AudD`: a bare `AudD` means the namespace, even after `using AudD;`.
+
 Recognize from a local file:
 
 ```csharp
-using AudD;
-
-var audd = new AudD("your-api-token");
+var audd = new AudD.AudD("your-api-token");
 var result = await audd.RecognizeAsync("/path/to/clip.mp3");
 if (result is not null)
 {
@@ -53,17 +51,16 @@ For longer audio files (full-length songs, short-form videos, podcasts, broadcas
 Pass the token to the constructor:
 
 ```csharp
-var audd = new AudD("your-token");
+var audd = new AudD.AudD("your-token");
 ```
 
 Or omit it and set `AUDD_API_TOKEN` in the environment — the SDK reads it on construction:
 
 ```csharp
-Environment.SetEnvironmentVariable("AUDD_API_TOKEN", "your-token");
-var audd = new AudD(apiToken: null);          // env-var fallback
-// or, equivalent and more explicit:
-var audd = AudD.FromEnvironment();
+var audd = AudD.AudD.FromEnvironment();   // throws ArgumentException when AUDD_API_TOKEN is unset
 ```
+
+`new AudD.AudD(apiToken: null)` falls back to `AUDD_API_TOKEN` the same way.
 
 For long-running services that rotate tokens (e.g., from Azure Key Vault or AWS Secrets Manager), call `audd.SetApiToken(newToken)`. In-flight requests finish on the previous token; subsequent requests use the new one.
 
@@ -74,7 +71,7 @@ By default `RecognizeAsync` returns the core tags plus AudD's universal song lin
 ```csharp
 using AudD;
 
-var audd = new AudD("your-token");
+var audd = new AudD.AudD("your-token");
 var result = await audd.RecognizeAsync("https://audd.tech/example.mp3");
 if (result is null) return;
 
@@ -247,13 +244,15 @@ builder.Services.AddAudD(opts => builder.Configuration.GetSection("AudD").Bind(o
 Without DI, every knob is on the `AudD` constructor:
 
 ```csharp
+using System.Net;
+
 using var http = new HttpClient(new SocketsHttpHandler
 {
     Proxy = new WebProxy("http://corp-proxy:8080"),
     UseProxy = true,
 });
 
-var audd = new AudD(
+var audd = new AudD.AudD(
     apiToken:     "your-token",
     maxRetries:   3,                 // per-call retry budget
     backoffFactor: 0.5,              // initial backoff seconds (jittered)
@@ -261,9 +260,11 @@ var audd = new AudD(
     onEvent:      evt => Console.WriteLine($"{evt.Kind} {evt.Method} {evt.HttpStatus}"));
 ```
 
+`httpClient:` carries every call except `RecognizeEnterpriseAsync`. Enterprise calls use `enterpriseHttpClient:` when you pass one, and a client the SDK creates otherwise. To send them through the same proxy or mTLS setup, pass `enterpriseHttpClient:` a second `HttpClient` with the same handler settings and `Timeout = Timeout.InfiniteTimeSpan`; the SDK applies the 1-hour enterprise deadline itself.
+
 `AudD` implements `IDisposable` and `IAsyncDisposable`; if you didn't pass your own `HttpClient`, dispose the client at app shutdown to release the underlying transport. A single instance is safe to share across threads and ASP.NET Core requests — construct it once, reuse it.
 
-**Timeouts.** Defaults are 60 s read for standard endpoints and 1 hour read for the enterprise endpoint (which legitimately processes multi-hour files). Override per call with the `timeout:` parameter or by passing a `CancellationToken`.
+**Timeouts.** Defaults are 60 s read for standard endpoints and 1 hour read for the enterprise endpoint. Override per call with the `timeout:` parameter or by passing a `CancellationToken`.
 
 **Retries.** Calls are classified by cost and retried accordingly:
 
@@ -272,7 +273,7 @@ var audd = new AudD(
 | `Recognition` | `RecognizeAsync`, `RecognizeEnterpriseAsync`, `Advanced.*` | transport failures (`HttpRequestException`) and 5xx responses |
 | `Read` | `Streams.ListAsync`, `Streams.GetCallbackUrlAsync`, longpoll | transport failures and timeouts, plus 408, 429, and 5xx |
 | `Mutating` | `Streams.SetCallbackUrlAsync`, `Streams.AddAsync`, `Streams.DeleteAsync` | transport failures only — never 5xx (the change may already have been applied) |
-| — | `CustomCatalog.AddAsync` | never retried — the upload is metered, and re-sending it could double-bill |
+| — | `CustomCatalog.AddAsync` | never retried automatically — check the error before sending it again |
 
 A recognition call that times out after the audio has been sent is surfaced rather than retried — the server may already be processing it.
 
@@ -280,7 +281,7 @@ A recognition call that times out after the audio has been sent is surfaced rath
 
 ## AOT and IL-trim
 
-The library targets `net8.0` (and `net6.0` for the LTS path), declares `IsAotCompatible=true` / `IsTrimmable=true`, and parses every wire-boundary type through a source-generated `System.Text.Json` context. Publishing as a self-contained native binary works out of the box:
+The library targets `net8.0` and `net6.0`, declares `IsAotCompatible=true` / `IsTrimmable=true`, and parses every wire-boundary type through a source-generated `System.Text.Json` context. Publishing as a self-contained native binary works out of the box:
 
 ```bash
 dotnet publish -c Release -r linux-x64 -p:PublishAot=true
@@ -329,7 +330,7 @@ app.MapPost("/audd-callback", async (HttpRequest req, AudD.AudD audd) =>
 
 If you can't expose a public callback receiver, longpoll instead. AudD still requires a callback URL to be configured for the account (`https://audd.tech/empty/` works as a no-op receiver), and the SDK preflights this for you — pass `skipCallbackCheck: true` to skip if you've already verified.
 
-`LongpollAsync` returns a `LongpollPoll` handle with three typed `IAsyncEnumerable` streams: `Matches`, `Notifications`, and `Errors`. Iterate any one of them with `await foreach`; iterate multiple in parallel from separate tasks. Disposing the handle stops the background fetch loop.
+`LongpollAsync` returns a `LongpollPoll` handle with three typed `IAsyncEnumerable` streams: `Matches`, `Notifications`, and `Errors`. A background loop fills them and delivers each event once, in order; "no events before timeout" responses deliver nothing. Iterate any one of them with `await foreach`; iterate multiple in parallel from separate tasks. Disposing the handle stops the loop, including a request in progress.
 
 ```csharp
 long radioId = 1; // any integer you choose — your handle for this stream
@@ -339,9 +340,15 @@ await foreach (var m in poll.Matches.WithCancellation(ct))
 {
     Console.WriteLine($"{m.Song.Artist} — {m.Song.Title}");
 }
+
+// Matches ends when polling stops; Errors says why.
+await foreach (var error in poll.Errors)
+{
+    Console.Error.WriteLine($"longpoll stopped: {error.Message}");
+}
 ```
 
-Keepalive responses (`{"timeout":"no events before timeout"}`) are silently absorbed — only real recognition matches and lifecycle notifications reach `Matches` / `Notifications`.
+Polling stops on its own only when it can't go on: the server rejects the request (`AudDInvalidRequestException`, for example a `timeout` outside 1–120 seconds), or the network or the server keeps failing after the retries (`AudDConnectionException`, `AudDServerException`). The exception goes to `Errors` before `Matches` and `Notifications` close, so read `Errors` after `Matches` ends, or alongside it. A response the SDK doesn't recognize delivers nothing, and the next request waits 1 second, doubling up to 30 seconds while such responses continue.
 
 `DeriveLongpollCategory` is a local computation: `MD5(MD5(api_token) + radio_id)[:9]`. The category alone is sufficient to subscribe — the api_token is never sent over the wire for longpoll requests.
 
@@ -359,6 +366,10 @@ await foreach (var m in poll.Matches.WithCancellation(ct))
 {
     Console.WriteLine($"{m.Song.Artist} — {m.Song.Title}");
 }
+await foreach (var error in poll.Errors)
+{
+    Console.Error.WriteLine($"longpoll stopped: {error.Message}");
+}
 ```
 
 ## Custom catalog (advanced)
@@ -370,6 +381,8 @@ await foreach (var m in poll.Matches.WithCancellation(ct))
 ```csharp
 await audd.CustomCatalog.AddAsync(audioId: 42, "https://my.song.mp3");
 ```
+
+`AddAsync` is sent once and never retried automatically: when it throws, check the error before sending it again. An upload to an `audio_id` that already holds a song replaces it.
 
 ## License
 

@@ -47,7 +47,7 @@ public class SourceTests
         // First call OK
         using (s.BuildContent(new Dictionary<string, string>())) { /* drained */ }
         // Second call must throw
-        Assert.Throws<InvalidOperationException>(() => s.BuildContent(new Dictionary<string, string>()));
+        Assert.Throws<RecognitionSource.SourceNotReplayableException>(() => s.BuildContent(new Dictionary<string, string>()));
     }
 
     [Fact]

@@ -115,21 +115,10 @@ internal sealed class HttpTransport : IDisposable
         return await SendAsync(HttpMethod.Post, url, content, cancellationToken, requestTimeout).ConfigureAwait(false);
     }
 
-    public async Task<HttpResponseEnvelope> GetAsync(
-        string url,
-        IDictionary<string, string>? query,
-        CancellationToken cancellationToken,
-        TimeSpan? requestTimeout = null)
-    {
-        var qs = new Dictionary<string, string>(query ?? new Dictionary<string, string>());
-        if (!qs.ContainsKey("api_token"))
-        {
-            qs["api_token"] = CurrentToken();
-        }
-        var fullUrl = AppendQueryString(url, qs);
-        return await SendAsync(HttpMethod.Get, fullUrl, content: null, cancellationToken, requestTimeout).ConfigureAwait(false);
-    }
-
+    /// <summary>
+    /// GET with the query string only. The api_token is never put in a URL: URLs
+    /// end up in proxy logs and in exception messages.
+    /// </summary>
     public async Task<HttpResponseEnvelope> GetWithoutAuthAsync(
         string url,
         IDictionary<string, string>? query,

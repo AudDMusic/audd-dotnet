@@ -171,14 +171,26 @@ public sealed class Streams
     /// <see cref="LongpollPoll.Errors"/> streams are filled by a background fetch loop.
     /// Dispose the handle to stop polling.
     ///
-    /// <para>Keepalive responses (<c>{"timeout":"no events before timeout"}</c>) are
-    /// silently absorbed — only real recognition matches and lifecycle notifications
-    /// reach the consumer.</para>
+    /// <para>Each event the server returns reaches <see cref="LongpollPoll.Matches"/> or
+    /// <see cref="LongpollPoll.Notifications"/> once, in order; "no events before
+    /// timeout" responses deliver nothing. A request the server rejects (for example
+    /// a <paramref name="timeout"/> outside 1–120) ends the poll with an
+    /// <see cref="AudDInvalidRequestException"/> on <see cref="LongpollPoll.Errors"/>.
+    /// The longpoll request carries only the category, never the api_token.</para>
     ///
     /// <para>On entry, preflights <see cref="GetCallbackUrlAsync"/> unless
     /// <paramref name="skipCallbackCheck"/> is true — the AudD server requires a
     /// callback URL to be configured before longpoll will deliver events.</para>
     /// </summary>
+    /// <param name="category">The 9-character longpoll category.</param>
+    /// <param name="sinceTime">Server timestamp (milliseconds) to resume after; only newer events are delivered.</param>
+    /// <param name="timeout">
+    /// Seconds the server holds each request open waiting for events, 1 to 120
+    /// (default 50). An injected <see cref="HttpClient"/>'s own
+    /// <see cref="HttpClient.Timeout"/> must be longer.
+    /// </param>
+    /// <param name="skipCallbackCheck">Skip the callback-URL preflight.</param>
+    /// <param name="cancellationToken">Cancels the preflight and, later, the poll.</param>
     public async Task<LongpollPoll> LongpollAsync(
         string category,
         long? sinceTime = null,
@@ -226,13 +238,20 @@ public sealed class Streams
                 _events.EmitRequest("longpoll", longpollUrl);
                 try
                 {
+                    // The category authorizes the request: no api_token on the wire.
                     envelope = await Retry.RunAsync(
-                        c => _http.GetAsync(longpollUrl, qs, c, requestTimeout: requestDeadline),
+                        c => _http.GetWithoutAuthAsync(longpollUrl, qs, c, requestTimeout: requestDeadline),
                         ReadPolicy(),
                         ct).ConfigureAwait(false);
                 }
                 catch (HttpRequestException exc)
                 {
+                    _events.EmitException("longpoll", longpollUrl, exc, DateTime.UtcNow - startedAt);
+                    throw new AudDConnectionException(exc.Message, exc);
+                }
+                catch (TaskCanceledException exc) when (!ct.IsCancellationRequested)
+                {
+                    // The SDK's request deadline fired, not the caller's token.
                     _events.EmitException("longpoll", longpollUrl, exc, DateTime.UtcNow - startedAt);
                     throw new AudDConnectionException(exc.Message, exc);
                 }
@@ -242,20 +261,29 @@ public sealed class Streams
                     throw;
                 }
 
-                if (envelope.JsonBody is null || envelope.JsonBody.Value.ValueKind != JsonValueKind.Object)
+                LongpollBatch batch;
+                try
                 {
-                    var serExc = new AudDSerializationException("Unparseable longpoll response", envelope.RawText);
-                    _events.EmitException("longpoll", longpollUrl, serExc, DateTime.UtcNow - startedAt,
-                        httpStatus: envelope.HttpStatus, requestId: envelope.RequestId);
-                    throw serExc;
+                    batch = LongpollResponse.Read(envelope);
+                }
+                catch (AudDApiException exc)
+                {
+                    _events.EmitException("longpoll", longpollUrl, exc, DateTime.UtcNow - startedAt,
+                        httpStatus: exc.HttpStatus, requestId: exc.RequestId, errorCode: exc.ErrorCode);
+                    throw;
                 }
                 _events.EmitResponse("longpoll", longpollUrl, envelope.RequestId, envelope.HttpStatus, DateTime.UtcNow - startedAt);
-                return envelope.JsonBody.Value;
+                return batch;
             },
-            initialSinceTime: sinceTime);
+            initialSinceTime: sinceTime,
+            delay: IdleDelay,
+            logger: _logger);
 
         return LongpollPoll.Start(fetcher, cancellationToken);
     }
+
+    /// <summary>Replaces the wait between longpoll requests that moved nothing forward (tests only).</summary>
+    internal Func<TimeSpan, CancellationToken, Task>? IdleDelay { get; set; }
 
     /// <summary>
     /// Start a long-poll subscription keyed on a stream's <paramref name="radioId"/>.
@@ -324,6 +352,12 @@ public sealed class Streams
         }
         catch (HttpRequestException exc)
         {
+            _events.EmitException(method, url, exc, DateTime.UtcNow - startedAt);
+            throw new AudDConnectionException(exc.Message, exc);
+        }
+        catch (TaskCanceledException exc) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The SDK's request deadline fired, not the caller's token.
             _events.EmitException(method, url, exc, DateTime.UtcNow - startedAt);
             throw new AudDConnectionException(exc.Message, exc);
         }

@@ -32,7 +32,7 @@
     <PublishAot Condition=" '$(TargetFramework)' == 'net6.0' ">false</PublishAot>
 
     <PackageId>AudD</PackageId>
-    <Version>1.5.17</Version>
+    <Version>1.5.18</Version>
     <Authors>AudD</Authors>
     <Company>AudD</Company>
     <Product>AudD</Product>
@@ -44,7 +44,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>audd;music-recognition;audio;fingerprinting</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Lenient response parsing hardening: wrong-typed fields degrade per-field instead of failing a call. Per-call timeouts can now both shorten and extend the deadline, and the dependency-injection path preserves IHttpClientFactory handler rotation.</PackageReleaseNotes>
+    <PackageReleaseNotes>Longpoll reads the server's event responses and delivers each recognition and notification in order; a longpoll error response ends the poll with AudDInvalidRequestException; responses with nothing new are followed by a pause of 1 to 30 seconds. Timeouts surface as AudDConnectionException.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>

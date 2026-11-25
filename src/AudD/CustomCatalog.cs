@@ -17,8 +17,8 @@ public sealed class CustomCatalog
     private readonly EventEmitter _events;
 
     // maxRetries is accepted for signature parity with the other namespace classes
-    // (Streams, Advanced) but deliberately ignored: custom-catalog upload is metered
-    // and must not auto-retry — see AddAsync for the policy override.
+    // (Streams, Advanced) but deliberately ignored: a custom-catalog upload is sent
+    // once and never retried automatically — see AddAsync for the policy override.
     internal CustomCatalog(HttpTransport http, int maxRetries, double backoffFactor, ILogger logger, EventEmitter? events = null)
     {
         _ = maxRetries;
@@ -37,8 +37,10 @@ public sealed class CustomCatalog
     /// tracks for <i>your account only</i>. Requires special access — contact api@audd.io
     /// if you need it enabled.
     ///
-    /// Calling this again with the same <paramref name="audioId"/> re-fingerprints that slot.
-    /// There is no public list/delete endpoint; track audio_id ↔ song mappings on your side.
+    /// The upload is sent once and never retried automatically: when it throws, check
+    /// the error before sending it again. An upload to an <paramref name="audioId"/> that
+    /// already holds a song replaces it. There is no public list/delete endpoint; track
+    /// audio_id ↔ song mappings on your side.
     /// </summary>
     public Task AddAsync(long audioId, string sourceUrlOrPath, CancellationToken cancellationToken = default)
         => AddAsync(audioId, RecognitionSource.From(sourceUrlOrPath), cancellationToken);
@@ -61,12 +63,12 @@ public sealed class CustomCatalog
         {
             ["audio_id"] = audioId.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
-        // Custom-catalog upload is metered per call. A retry on a transient pre-upload
-        // failure could double-charge for the same fingerprinting work (the server may
-        // already have begun ingesting bytes when the connection drops). Force a
-        // 1-attempt policy regardless of the user's configured maxRetries so transient
-        // failures surface as clean exceptions instead of silent re-uploads. Streams
-        // mutating ops (addStream/setUrl/deleteStream/setCallbackUrl) keep the standard
+        // A custom-catalog upload is never retried automatically: the server may already
+        // have begun ingesting bytes when a connection drops, so the caller decides,
+        // from the error, whether to send it again. Force a 1-attempt policy regardless
+        // of the user's configured maxRetries so transient failures surface as clean
+        // exceptions instead of silent re-uploads. Streams mutating ops
+        // (addStream/setUrl/deleteStream/setCallbackUrl) keep the standard
         // RetryClass.Mutating policy because they are server-idempotent on radioId.
         var policy = new RetryPolicy(RetryClass.Mutating, MaxAttempts: 1, _backoffFactor);
         var startedAt = DateTime.UtcNow;
@@ -86,6 +88,12 @@ public sealed class CustomCatalog
         }
         catch (HttpRequestException exc)
         {
+            _events.EmitException("custom_catalog_add", UploadUrl, exc, DateTime.UtcNow - startedAt);
+            throw new AudDConnectionException(exc.Message, exc);
+        }
+        catch (TaskCanceledException exc) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The SDK's request deadline fired, not the caller's token.
             _events.EmitException("custom_catalog_add", UploadUrl, exc, DateTime.UtcNow - startedAt);
             throw new AudDConnectionException(exc.Message, exc);
         }
